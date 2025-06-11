@@ -1,0 +1,7 @@
+,Metric,Value
+0,Overall Accuracy,0.3444
+1,Weighted Precision,0.4487
+2,Weighted Recall,0.3444
+3,Weighted F1 Score,0.3185
+4,Cross-Val Avg Accuracy,0.3444
+5,Cross-Val Avg F1,0.3160
