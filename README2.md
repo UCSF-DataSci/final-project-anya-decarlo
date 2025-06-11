@@ -54,13 +54,13 @@ python base\ model/run_hmm_hybrid_pipeline.py \
        --data_dir /data/ravdess-emotional-speech-audio \
        --feature_type mfcc --n_states 5
 ```
-Outputs (timestamped `results/hybrid_<n>s_YYYYMMDD_HHMMSS/`):
-* `hmm_cv_metrics.json` — HMM metrics (speaker-independent)
-* `hybrid_summary.json` — winning classifier & weighted-F1
-* `figures/conf_matrix_hybrid.png`
+Outputs (timestamped `results/hmm/<ts>_<feature>_n<nstates>_hybrid/`):
+* `metrics/hmm_results_<ts>.pkl`, `metrics/cv_metrics.json`, etc.
+* `figures/perf_barplot.png`, `figures/conf_matrix_hmm.png`
 * `figures/pr_curves.png`
 * `figures/feature_importance.png`
 * `hmm_vs_hybrid.tex` — LaTeX comparison table
+* `metrics/hybrid_summary.json`
 
 ### 4.3 Feature-family comparison (MI-driven)
 Ranks all 11 acoustic descriptor families via mutual information and retains the informative subset before a single HMM + Hybrid evaluation.
