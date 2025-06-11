@@ -172,3 +172,4 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+base_model/ravdess-emotional-speech-audio/
