@@ -116,7 +116,10 @@ def debug_filenames(data_path):
                 print(f"  Emotion position (index 2): '{parts[2]}'")
             print()
 
-def load_ravdess_features(data_dir, feature_type='mfcc'):
+# -----------------------------------------------------------------------------
+# Primary loader used by both classic and hybrid pipelines
+# -----------------------------------------------------------------------------
+def load_ravdess_features(data_dir, feature_type: str = 'mfcc', *, return_file_paths: bool = False):
     """
     Load RAVDESS features for the HMM pipeline.
     Simple interface function to extract acoustic features from RAVDESS audio files.
@@ -124,11 +127,13 @@ def load_ravdess_features(data_dir, feature_type='mfcc'):
     Args:
         data_dir: Directory containing RAVDESS audio files
         feature_type: Type of feature to extract ('mfcc', 'spectral', 'prosodic', 'chroma')
+        return_file_paths: Optional parameter to return file paths list
         
     Returns:
         observation_sequences: List of feature sequences
         emotion_labels: List of emotion labels 
         emotion_classes: List of unique emotion classes
+        file_paths: List of file paths (if return_file_paths is True)
     """
     print(f"Loading {feature_type} features from {data_dir}...")
     
@@ -166,8 +171,9 @@ def load_ravdess_features(data_dir, feature_type='mfcc'):
     }
     
     # Extract features and labels
-    observation_sequences = []
-    emotion_labels = []
+    observation_sequences: list[np.ndarray] = []
+    emotion_labels: list[str] = []
+    file_paths: list[str] = []
     
     for wav_file in all_wav_files:
         try:
@@ -223,6 +229,7 @@ def load_ravdess_features(data_dir, feature_type='mfcc'):
             # Add to dataset
             observation_sequences.append(features)
             emotion_labels.append(emotion)
+            file_paths.append(str(wav_file))
             
         except Exception as e:
             print(f"Error processing {wav_file.name}: {e}")
@@ -233,6 +240,8 @@ def load_ravdess_features(data_dir, feature_type='mfcc'):
     print(f"Successfully loaded {len(observation_sequences)} sequences")
     print(f"Found {len(emotion_classes)} emotion classes: {emotion_classes}")
     
+    if return_file_paths:
+        return observation_sequences, emotion_labels, emotion_classes, file_paths
     return observation_sequences, emotion_labels, emotion_classes
 
 

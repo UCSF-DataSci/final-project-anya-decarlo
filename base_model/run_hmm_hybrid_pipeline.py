@@ -17,6 +17,7 @@ import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 import debug_dataimport as data_loader
 import hmm_part3_evaluation as evaluator
@@ -40,6 +41,8 @@ def main():
     parser.add_argument("--n_iter", type=int, default=100)
     parser.add_argument("--n_folds", type=int, default=5)
     parser.add_argument("--output_base", default="results")
+    parser.add_argument("--n_jobs", type=int, default=-1,
+                        help="Parallel jobs for HMM training and classifier (-1 = all cores)")
     parser.add_argument("--group_by_actor", action="store_true",
                         help="Enable speaker-independent CV via GroupKFold")
     args = parser.parse_args()
@@ -52,21 +55,23 @@ def main():
     figs.mkdir(parents=True, exist_ok=True)
 
     # ---------------------------------------------------------------------
-    # Load data
-    obs, labels, classes = data_loader.load_ravdess_features(args.data_dir, args.feature_type)
+    # Load data (also return file paths so GroupKFold receives matching length)
+    if args.group_by_actor:
+        obs, labels, classes, file_names = data_loader.load_ravdess_features(
+            args.data_dir, args.feature_type, return_file_paths=True)
+    else:
+        obs, labels, classes = data_loader.load_ravdess_features(args.data_dir, args.feature_type)
+        file_names = None
 
     # ---------------------------------------------------------------------
     # Step 1: HMM cross-validation with Viterbi paths
-    file_names = None
-    if args.group_by_actor:
-        file_names = sorted(str(p) for p in Path(args.data_dir).rglob("*.wav"))
-
     cv_res = evaluator.cross_validate_hmm(obs, labels, classes,
                                           n_states=args.n_states,
                                           n_components=args.n_components,
                                           n_folds=args.n_folds,
                                           n_iter=args.n_iter,
                                           return_paths=True,
+                                          n_jobs=args.n_jobs,
                                           group_by_actor=args.group_by_actor,
                                           file_names=file_names)
 
@@ -76,7 +81,7 @@ def main():
 
     # ---------------------------------------------------------------------
     # Step 2: Hybrid classifier
-    clf_info = hybrid.run_hybrid_pipeline(cv_res, labels, args.n_states)
+    clf_info = hybrid.run_hybrid_pipeline(cv_res, labels, args.n_states, n_jobs=args.n_jobs)
 
     # Save best score summary
     with open(metrics_dir / "hybrid_summary.json", "w") as fp:
@@ -99,6 +104,34 @@ def main():
     feat_names = [f"freq_s{j}" for j in range(args.n_states)] + \
                  [f"trans_{a}_{b}" for a in range(args.n_states) for b in range(args.n_states)] + ["entropy"]
     hybrid.plot_feature_importance(clf_info["best_model"], feat_names, figs / "feature_importance.png")
+
+    # ------------------------------------------------------------------
+    # Additional visualisations to match classic HMM pipeline
+    # ------------------------------------------------------------------
+    # Per-emotion precision/recall/F1 bar chart
+    from sklearn.metrics import classification_report
+    rep = classification_report(labels, clf_info["best_model"].predict(X_feat), target_names=classes, output_dict=True)
+    per_emotion = pd.DataFrame(rep).T.loc[classes, ["precision", "recall", "f1-score"]]
+    per_emotion.reset_index(inplace=True)
+    per_emotion.rename(columns={"index": "Emotion", "f1-score": "F1"}, inplace=True)
+    plt.figure(figsize=(10, 6))
+    sns.set_style("whitegrid")
+    pe_melt = per_emotion.melt(id_vars="Emotion", var_name="Metric", value_name="Score")
+    ax = sns.barplot(data=pe_melt, x="Emotion", y="Score", hue="Metric")
+    plt.ylim(0, 1)
+    plt.title("Hybrid model performance by emotion")
+    for c in ax.containers:
+        ax.bar_label(c, fmt="%.2f", fontsize=8)
+    plt.tight_layout()
+    plt.savefig(figs / "performance_by_emotion_hybrid.png", dpi=300)
+    plt.close()
+
+    # Summary metrics CSV + LaTeX
+    summary_path_csv = metrics_dir / "hybrid_summary_metrics.csv"
+    pd.DataFrame([cv_res["average_metrics"]]).to_csv(summary_path_csv, index=False)
+    with open(metrics_dir / "hybrid_summary_metrics.tex", "w") as fp:
+        fp.write(pd.DataFrame([cv_res["average_metrics"]]).to_latex(index=False, float_format="{:.4f}".format,
+                               caption="Cross-validation average metrics for Hybrid model", label="tab:hybrid_metrics"))
 
     # ---------------------------------------------------------------------
     # Create LaTeX table comparing baseline vs hybrid

@@ -1,3 +1,0 @@
-Y definition: I said Y is "discrete-valued with natural categorical ordering" - but emotions don't really have a natural ordering (is angry > happy?). Should be just "discrete categorical variable."
-Notation mixing: I mixed variable importance notation from Feng's original work with HMM notation. These are different problems!
-Conditional independence: The transition probabilities shouldn't condition on X and λ simultaneously like I wrote.

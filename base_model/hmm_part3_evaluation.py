@@ -193,6 +193,9 @@ def cross_validate_hmm(observation_sequences, emotion_labels, emotion_classes,
     if return_paths:
         all_viterbi_paths = []
     
+    # Ensure labels are NumPy array for convenient boolean/indexing operations
+    emotion_labels = np.asarray(emotion_labels)
+    
     # Choose cross-validator
     if group_by_actor:
         if file_names is None:
@@ -217,9 +220,12 @@ def cross_validate_hmm(observation_sequences, emotion_labels, emotion_classes,
         print(f"\nFold {fold+1}/{n_folds}:")
         
         # Split data into train and test sets
-        X_train = observation_sequences[train_idx]
+        # observation_sequences is a standard Python list, so we need to gather
+        # elements manually using list comprehensions (list indexing with NumPy
+        # arrays is not supported).
+        X_train = [observation_sequences[i] for i in train_idx]
         y_train = emotion_labels[train_idx]
-        X_test = observation_sequences[test_idx]
+        X_test = [observation_sequences[i] for i in test_idx]
         y_test = emotion_labels[test_idx]
         
         # Organize training data by emotion

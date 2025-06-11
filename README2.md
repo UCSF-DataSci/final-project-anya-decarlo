@@ -4,9 +4,9 @@ _Comprehensive execution guide & expected outputs_
 
 ---
 
-## 1. Repository structure (simplified)
+## 1. Repository structure 
 ```
-base model/
+base_model/
 │   hmm_part1_load_data.py          # legacy loader (superseded by debug_dataimport)
 │   debug_dataimport.py             # canonical feature extractor
 │   hmm_part2_model_implementation.py
@@ -14,7 +14,6 @@ base model/
 │   hybrid_classifier.py            # Viterbi→RF/SVM utilities
 │   run_state_sweep.py              # 3-6 state HMM benchmark
 │   run_hmm_hybrid_pipeline.py      # best-state HMM + Hybrid
-│   run_feature_mi_select.py        # MI-based feature-family comparison
 │   run_feature_mi_select.py        # MI-based feature-family selection
 results/                             # auto-created by runners (timestamped sub-dirs)
 ```
@@ -28,17 +27,20 @@ pip install -r requirements.txt  # numpy, scipy, scikit-learn, librosa, seaborn,
 If you plan to regenerate MFCCs on CPU-only hardware, ensure `librosa` ≥0.10; optional `numba` speeds up.
 
 ## 3. Data preparation
-Download the RAVDESS speech subset (≈1.1 GB) and place it anywhere, e.g.
+Download the **RAVDESS Emotional Speech Audio** subset (≈1.1 GB) from Zenodo:
+<https://doi.org/10.5281/zenodo.1188975>
+
+Extract it to any location, e.g.
 ```
 /data/ravdess-emotional-speech-audio/
 ```
-No pre-processing required; file names keep their original `03-01-05-01-02-02-12.wav` pattern which encodes the actor ID.
+No pre-processing is required; each WAV keeps its original `03-01-05-01-02-02-12.wav` name which encodes the actor ID used by `--group_by_actor`.
 
 ## 4. Pipelines
 ### 4.1 State-sweep benchmark (3–6 states)
 Evaluates MFCC HMMs with 3-,4-,5-,6-state topologies.
 ```bash
-python base\ model/run_state_sweep.py \
+python base_model/run_state_sweep.py \
        --data_dir /data/ravdess-emotional-speech-audio \
        --feature_type mfcc --n_components 1 --n_iter 100
 ```
@@ -50,9 +52,9 @@ Artifacts (created in `results/state_sweep/`):
 ### 4.2 Hybrid pipeline
 Runs the best-state HMM cross-validation with speaker-independent folds, extracts Viterbi paths, trains a downstream RF/SVM.
 ```bash
-python base\ model/run_hmm_hybrid_pipeline.py \
+python base_model/run_hmm_hybrid_pipeline.py \
        --data_dir /data/ravdess-emotional-speech-audio \
-       --feature_type mfcc --n_states 5
+       --feature_type prosodic --n_states 5
 ```
 Outputs (timestamped `results/hmm/<ts>_<feature>_n<nstates>_hybrid/`):
 * `metrics/hmm_results_<ts>.pkl`, `metrics/cv_metrics.json`, etc.
@@ -66,12 +68,12 @@ Outputs (timestamped `results/hmm/<ts>_<feature>_n<nstates>_hybrid/`):
 Ranks all 11 acoustic descriptor families via mutual information and retains the informative subset before a single HMM + Hybrid evaluation.
 ```bash
 # MI ranking only (fast)
-python base\ model/run_feature_mi_select.py \
+python base_model/run_feature_mi_select.py \
        --data_dir /data/ravdess-emotional-speech-audio \
        --n_states 5 --top_k 2
 
 # MI + full HMM + Hybrid evaluation
-python base\ model/run_feature_mi_select.py \
+python base_model/run_feature_mi_select.py \
        --data_dir /data/ravdess-emotional-speech-audio \
        --n_states 5 --top_k 2 --evaluate 1
 ```
@@ -84,15 +86,15 @@ Artifacts (timestamped `results/feature_select/<ts>_n<nstates>_(topkK|tauX)/`):
 
 ### 4.4 Full HMM evaluation (precision / recall bar-chart)
 ```bash
-python base\ model/run_hmm_hybrid_pipeline.py \
+python base_model/run_hmm_pipeline.py \
        --data_dir /data/ravdess-emotional-speech-audio \
-       --feature_type mfcc+prosodic --n_states 5 --group_by_actor
+       --feature_type prosodic --n_states 5 --group_by_actor
 ```
 ### 4.5 Hybrid evaluation on final config
 ```bash
-python base\ model/run_hmm_hybrid_pipeline.py \
+python base_model/run_hmm_hybrid_pipeline.py \
        --data_dir /data/ravdess-emotional-speech-audio \
-       --n_states 5 --group_by_actor
+       --feature_type prosodic --n_states 5 --group_by_actor
 ```
 
 ## 5. Expected runtime (12-core CPU)

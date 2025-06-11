@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from sklearn.feature_selection import mutual_info_classif
 
 import debug_dataimport as data_loader
+import feature_utils as fu
 import hmm_part3_evaluation as evaluator
 import hybrid_classifier as hybrid
 
@@ -80,6 +81,12 @@ def main():
     p.add_argument("--n_iter", type=int, default=100)
     p.add_argument("--evaluate", type=int, choices=[0,1], default=0,
                    help="Set to 1 to run HMM + Hybrid after MI ranking")
+    p.add_argument("--mi_only", action="store_true",
+                   help="Only compute MI and skip downstream HMM/hybrid training")
+    p.add_argument("--perm_test", type=int, default=0,
+                   help="If >0, run permutation test with this many shuffles per family to assess MI significance")
+    p.add_argument("--max_combo", type=int, default=1,
+                   help="Maximum combination size of families to evaluate (1 = singletons only)")
     args = p.parse_args()
 
     selector_tag = f"topk{args.top_k}" if args.top_k is not None else f"tau{args.tau}"
@@ -89,21 +96,33 @@ def main():
 
     # Discover available families
     try:
-        families = data_loader.AVAILABLE_FAMILIES  # type: ignore
+        families = fu.AVAILABLE_FAMILIES  # type: ignore
     except AttributeError:
         families = ["mfcc", "spectral", "prosodic", "chroma"]  # fallback list
 
     mi_records: List[Dict] = []
+    rng = np.random.default_rng(42)
     summaries_by_family = {}
     labels = None
 
-    print("Computing MI for each family…")
+    print("Computing MI for single families…")
     for fam in families:
         obs, labels, _ = data_loader.load_ravdess_features(args.data_dir, fam)
         # Build summary matrix
         summary_matrix = np.vstack([sequence_summary(seq) for seq in obs])
         mi_val = compute_family_mi(summary_matrix, labels)
-        mi_records.append({"family": fam, "mi": mi_val})
+        record = {"family": fam, "mi": mi_val}
+        # optional permutation test
+        if args.perm_test > 0:
+            null_vals = []
+            for _ in range(args.perm_test):
+                shuffled = rng.permutation(labels)
+                null_vals.append(compute_family_mi(summary_matrix, shuffled))
+            null_vals = np.array(null_vals)
+            p_val = (np.sum(null_vals >= mi_val) + 1) / (len(null_vals) + 1)
+            record["p_val"] = p_val
+            record["mi_null_mean"] = float(null_vals.mean())
+        mi_records.append(record)
         summaries_by_family[fam] = obs  # keep raw sequences for later
 
     df_mi = pd.DataFrame(mi_records).sort_values("mi", ascending=False)
@@ -121,21 +140,64 @@ def main():
     plt.savefig(figs / "mi_barplot.png", dpi=300)
     plt.close()
 
+    # Evaluate combinations if requested
+    if args.max_combo > 1:
+        from itertools import combinations
+        fam_list = list(summaries_by_family.keys())
+        print(f"Computing MI for combinations up to size {args.max_combo}…")
+        for r in range(2, args.max_combo + 1):
+            for combo in combinations(fam_list, r):
+                combo_name = "+".join(combo)
+                if combo_name in summaries_by_family:
+                    continue  # skip if already computed
+                # concatenate per-utterance sequences
+                fam_seqs = [summaries_by_family[f] for f in combo]
+                merged_obs = concatenate_sequences(fam_seqs)
+                summary_matrix = np.vstack([sequence_summary(seq) for seq in merged_obs])
+                mi_val = compute_family_mi(summary_matrix, labels)
+                record = {"family": combo_name, "mi": mi_val}
+                if args.perm_test > 0:
+                    null_vals = []
+                    for _ in range(args.perm_test):
+                        shuffled = rng.permutation(labels)
+                        null_vals.append(compute_family_mi(summary_matrix, shuffled))
+                    null_vals = np.array(null_vals)
+                    p_val = (np.sum(null_vals >= mi_val) + 1) / (len(null_vals) + 1)
+                    record["p_val"] = p_val
+                    record["mi_null_mean"] = float(null_vals.mean())
+                mi_records.append(record)
+        df_mi = pd.DataFrame(mi_records).sort_values("mi", ascending=False)
+
+        # Re-write CSV/LaTeX/plot with full combination results
+        df_mi.to_csv(metrics_dir / "mi_scores.csv", index=False)
+        with open(metrics_dir / "mi_scores.tex", "w") as fp:
+            fp.write(df_mi.to_latex(index=False, float_format="{:.4f}".format,
+                                    caption="Mutual information of acoustic feature families and their combinations",
+                                    label="tab:mi_scores"))
+        sns.barplot(data=df_mi.head(15), x="family", y="mi", color="steelblue")
+        plt.xticks(rotation=45, ha="right")
+        plt.ylabel("Mean MI")
+        plt.tight_layout()
+        plt.savefig(figs / "mi_barplot.png", dpi=300)
+        plt.close()
+
     # Select families
-    if args.top_k is not None:
+    if args.perm_test > 0 and args.top_k is None:
+        selected = df_mi[df_mi.get("p_val", 1.0) < 0.05]["family"].tolist()
+    elif args.top_k is not None:
         selected = df_mi.head(args.top_k)["family"].tolist()
     else:
         selected = df_mi[df_mi["mi"] >= args.tau]["family"].tolist()
     print("Selected families:", selected)
 
-    if args.evaluate:
+    if args.evaluate and not args.mi_only:
         # Concatenate sequences of selected families
         fam_seqs = [summaries_by_family[f] for f in selected]
         merged_obs = concatenate_sequences(fam_seqs)
 
         # Load labels & classes once more (using first family)
         _, labels, classes = data_loader.load_ravdess_features(args.data_dir, selected[0])
-        file_names = data_loader.get_filenames(args.data_dir)  # must exist in loader
+        file_names = fu.get_filenames(args.data_dir)  # must exist in loader
 
         cv_res = evaluator.cross_validate_hmm(
             merged_obs, labels, classes,

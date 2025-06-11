@@ -12,7 +12,7 @@ from typing import List, Sequence
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
-from sklearn.model_selection import StratifiedKFold, GridSearchCV
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import classification_report, f1_score, precision_recall_curve, average_precision_score
 from sklearn.preprocessing import label_binarize
 import matplotlib.pyplot as plt
@@ -62,43 +62,30 @@ def build_feature_matrix(paths: List[Sequence[int]], n_states: int) -> np.ndarra
 # Classifier helper
 # ---------------------------------------------------------------------------
 
-def train_rf_svm_cv(X: np.ndarray, y: List[str], cv_splits: int = 5):
-    """Grid-search RF and SVM; return best model & metrics."""
-    skf = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=42)
+def train_rf_svm_cv(X: np.ndarray, y: List[str], cv_splits: int = 5, *, n_jobs: int = -1):
+    """Fit a Random-Forest (n_estimators=150, max_depth=None).
 
-    # Random Forest grid
-    rf_param_grid = {
-        "n_estimators": [100, 200],
-        "max_depth": [None, 10, 20],
-    }
-    rf = GridSearchCV(RandomForestClassifier(random_state=42), rf_param_grid,
-                      scoring="f1_weighted", cv=skf, n_jobs=-1)
+    Keeps previous signature so runner scripts remain unchanged. The model is
+    evaluated with StratifiedKFold and weighted-F1; no alternative classifiers
+    are searched to reduce runtime.
+    """
+    from sklearn.model_selection import cross_val_score
+
+    rf = RandomForestClassifier(n_estimators=150, max_depth=None,
+                                random_state=42, n_jobs=n_jobs)
+
+    skf = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(rf, X, y, cv=skf, scoring="f1_weighted", n_jobs=n_jobs)
+
     rf.fit(X, y)
 
-    # SVM grid
-    svm_param_grid = {
-        "C": [0.1, 1, 10],
-        "gamma": ["scale", "auto"],
-        "kernel": ["rbf"]
-    }
-    svm = GridSearchCV(SVC(), svm_param_grid, scoring="f1_weighted",
-                       cv=skf, n_jobs=-1)
-    svm.fit(X, y)
-
-    # Choose best of the two
-    if rf.best_score_ >= svm.best_score_:
-        best_model, best_score = rf.best_estimator_, rf.best_score_
-        model_name = "RandomForest"
-    else:
-        best_model, best_score = svm.best_estimator_, svm.best_score_
-        model_name = "SVM"
+    best_score = float(cv_scores.mean())
 
     return {
-        "best_model": best_model,
-        "model_name": model_name,
+        "best_model": rf,
+        "model_name": "RandomForest",
         "best_score": best_score,
-        "rf_cv_results": rf.cv_results_,
-        "svm_cv_results": svm.cv_results_,
+        "rf_cv_scores": cv_scores.tolist(),
     }
 
 # ---------------------------------------------------------------------------
@@ -156,7 +143,7 @@ def plot_feature_importance(model, feature_names: List[str], save_path: str):
 # Placeholder for orchestration (to be called by a runner script)
 # ---------------------------------------------------------------------------
 
-def run_hybrid_pipeline(cv_results: dict, emotion_labels: List[str], n_states: int):
+def run_hybrid_pipeline(cv_results: dict, emotion_labels: List[str], n_states: int, *, n_jobs: int = -1):
     """Entry point: takes CV results with Viterbi paths, fits hybrid classifier.
 
     Args:
@@ -176,7 +163,7 @@ def run_hybrid_pipeline(cv_results: dict, emotion_labels: List[str], n_states: i
     X = build_feature_matrix([p for p, _ in valid_pairs], n_states)
     y = [l for _, l in valid_pairs]
 
-    clf_info = train_rf_svm_cv(X, y)
+    clf_info = train_rf_svm_cv(X, y, n_jobs=n_jobs)
     print(f"Hybrid classifier ({clf_info['model_name']}) weighted F1: {clf_info['best_score']:.4f}")
     print(classification_report(y, clf_info["best_model"].predict(X)))
 

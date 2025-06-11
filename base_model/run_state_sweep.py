@@ -88,6 +88,10 @@ def main():
     parser.add_argument("--n_folds", type=int, default=5)
     parser.add_argument("--output_base", type=str, default="results",
                         help="Base directory for all results")
+    parser.add_argument("--subsample", type=int, default=1,
+                        help="Keep every k-th frame (k>=1). 3 cuts runtime ~3x.")
+    parser.add_argument("--n_states_single", type=int, default=None,
+                        help="If set, evaluate only this hidden-state count instead of 3-6 sweep.")
     args = parser.parse_args()
 
     out_dir = make_timestamp_dir(args.output_base, args.feature_type, args.n_components)
@@ -95,9 +99,15 @@ def main():
     # Load data
     obs, labels, classes = data_loader.load_ravdess_features(args.data_dir, args.feature_type)
 
-    # Sweep hidden states 3-6
+    # Optional frame thinning for speed
+    if args.subsample > 1:
+        obs = [seq[::args.subsample] for seq in obs]
+
+    # Determine which hidden-state counts to run
+    state_list = [args.n_states_single] if args.n_states_single is not None else list(range(3, 7))
+
     sweep_results: List[Dict] = []
-    for n_states in range(3, 7):
+    for n_states in state_list:
         print(f"\n=== Evaluating {n_states}-state HMM ===")
         cv_res = evaluator.cross_validate_hmm(obs, labels, classes,
                                              n_states=n_states,
